@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
+import json
+from passlib.context import CryptContext
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -76,6 +78,55 @@ activities = {
         "participants": ["charlotte@mergington.edu", "henry@mergington.edu"]
     }
 }
+
+# --- Simple user management (hashed passwords) ---
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+current_dir = Path(__file__).parent
+data_dir = current_dir / "data"
+data_dir.mkdir(exist_ok=True)
+users_file = data_dir / "users.json"
+
+def load_users():
+    if users_file.exists():
+        try:
+            return json.loads(users_file.read_text())
+        except Exception:
+            return {}
+    return {}
+
+def save_users(users):
+    users_file.write_text(json.dumps(users, indent=2))
+
+users = load_users()
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+@app.post('/register')
+def register(email: str, password: str):
+    """Register a user with a hashed password."""
+    if email in users:
+        raise HTTPException(status_code=400, detail="User already exists")
+    hashed = hash_password(password)
+    users[email] = {"password": hashed}
+    save_users(users)
+    return {"message": f"Registered {email}"}
+
+
+@app.post('/login')
+def login(email: str, password: str):
+    """Simple login that verifies a hashed password."""
+    if email not in users:
+        raise HTTPException(status_code=400, detail="Unknown user")
+    if not verify_password(password, users[email]["password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"message": "Login successful"}
+
 
 
 @app.get("/")
